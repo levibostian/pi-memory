@@ -2,6 +2,29 @@
 
 All notable changes to `@samfp/pi-memory`. Versions follow [semver](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Worktree-aware project identity.** A git linked worktree or a jj
+  non-default worktree now maps back to its main worktree, so every worktree
+  of one repository shares one memory namespace: the same `.pi/settings.json`,
+  the same `localPath` store, the same project slug, and the same consolidation
+  cwd. Previously each worktree looked like a separate project, so facts and
+  lessons learned in one were invisible from the others.
+- Detection reads the on-disk pointers git and jj already write (`.git` as a
+  file holding `gitdir: …/worktrees/<name>`, `.jj/repo` as a file holding
+  `<main>/.jj/repo`). No subprocess, no jj working-copy snapshot.
+- `vcWorktreeAware: false` opts out and keeps the literal cwd. On by default.
+
+### Changed
+
+- Plain directories, main worktrees, subdirectories of a main worktree, and
+  submodules resolve exactly as before, so existing sessions keep their
+  current store and slug.
+- A stale pointer — main worktree deleted or moved — falls back to the literal
+  cwd instead of failing startup.
+
 ## [1.7.0] - 2026-11-11
 
 ### Changed

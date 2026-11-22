@@ -19,6 +19,10 @@ The four Fact categories. Distinguished by key prefix:
 - **Tool preference** → `tool.*` (e.g. `tool.sed`)
 - **User identity** → `user.*` (e.g. `user.timezone`)
 
+**Project root**:
+The directory that identifies a project. Normally the cwd, but a git linked worktree or a jj non-default worktree maps back to its main worktree, so every worktree of one repository shares one project root. Settings lookup, `localPath`, the project slug, and the consolidation cwd are all derived from it, never from the literal cwd.
+_Avoid_: cwd (that is the literal directory), repo (means the version-control repository, not the project identity).
+
 **Consolidation**:
 End-of-session step where the conversation transcript is sent to an LLM with a structured prompt to extract Facts and Lessons. Only Facts with `confidence ≥ 0.8` are stored. Runs only if the session had ≥ 3 user messages.
 _Avoid_: extraction, summarization.

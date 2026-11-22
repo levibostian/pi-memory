@@ -46,6 +46,13 @@ export type LessonInjectionMode = "all" | "selective";
 export interface InjectorConfig {
   lessonInjection?: LessonInjectionMode;
   /**
+   * If you use version control worktrees (git, jj) then resolved cwd for project
+   * memories are mapped back to the root project, allowing all worktrees to use
+   * same memories as root does. Default on; `false` keeps the literal cwd.
+   * See ./vcWorktree.ts.
+   */
+  vcWorktreeAware?: boolean;
+  /**
    * Optional embedding provider for semantic search. Absent -- the default --
    * means FTS5 BM25 only and needs no configuration.
    *

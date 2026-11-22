@@ -61,7 +61,7 @@ Or add to `~/.pi/agent/settings.json`:
 
 ## How It Works
 
-1. **`session_start`** — Opens the SQLite store and shows memory stats briefly in the status bar.
+1. **`session_start`** — Maps the cwd to the project root (see [Worktrees](#worktrees-git-jj)), opens the SQLite store and shows memory stats briefly in the status bar.
 2. **`before_agent_start`** — On every user turn, searches memory for entries relevant to the prompt (plus project context for the cwd) and prepares a `<memory>` block.
 3. **`context`** — Splices that block into the request as an ephemeral message just before the latest user message. It is never written to session history.
 4. **`agent_end`** — Collects conversation messages for later consolidation.
@@ -256,6 +256,22 @@ Or, if installed via [`pi-total-recall`](https://github.com/samfoy/pi-total-reca
 3. Global default: `~/.pi/memory/memory.db`
 
 Existing global installs are unaffected — this is strictly additive.
+
+### Worktrees (git, jj)
+
+A linked git worktree (`git worktree add`) and a non-default jj worktree (`jj workspace add`) are separate directories that belong to one repository. Memory keyed on the literal cwd would treat each of them as its own project, so pi-memory maps them back to the main worktree and uses that directory for everything project-scoped.
+
+To keep each worktree separate instead:
+
+```jsonc
+{
+  "pi-memory": {
+    "vcWorktreeAware": false
+  }
+}
+```
+
+The switch is read from the project's own settings (or global settings), and from a worktree's own settings when the two disagree. It is on by default; only `false` disables it.
 
 ## License
 

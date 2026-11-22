@@ -20,7 +20,7 @@ type Api = Parameters<typeof piMemory>[0];
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type Tool = { execute: (...args: unknown[]) => Promise<{ content: { text: string }[] }> };
 
-function createHarness(memorySettings: Record<string, unknown>) {
+function createHarness(memorySettings: Record<string, unknown>, options: { cwd?: string } = {}) {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-memory-hooks-"));
   fs.mkdirSync(path.join(project, ".pi"), { recursive: true });
   fs.writeFileSync(
@@ -48,7 +48,7 @@ function createHarness(memorySettings: Record<string, unknown>) {
   piMemory(pi as unknown as Api);
 
   const ctx = {
-    cwd: project,
+    cwd: options.cwd ?? project,
     hasUI: true,
     ui: {
       setStatus: (_key: string, value: string) => void statuses.push(value),
@@ -237,6 +237,61 @@ describe("per-turn injection through the hooks", () => {
       );
     } finally {
       await h.cleanup();
+    }
+  });
+});
+
+describe("worktree-aware project identity", () => {
+  /**
+   * A linked git worktree: `.git` is a file pointing at the main repo's
+   * worktree bookkeeping. Written by hand so the test needs no git binary.
+   */
+  function linkedWorktree(main: string): string {
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "pi-memory-worktree-"));
+    fs.writeFileSync(
+      path.join(worktree, ".git"),
+      `gitdir: ${path.join(main, ".git", "worktrees", "wt")}\n`,
+    );
+    return worktree;
+  }
+
+  it("a linked worktree uses the main worktree's local store", async () => {
+    const h = createHarness({});
+    const main = h.ctx.cwd;
+    const worktree = linkedWorktree(main);
+    try {
+      h.ctx.cwd = worktree;
+      await h.handlers.get("session_start")!({}, h.ctx);
+
+      const stats = await h.call("memory_stats", {});
+      assert.ok(
+        stats.includes(`DB: ${path.join(main, "memory", "memory.db")}`),
+        `worktree session must share the main store, got:\n${stats}`,
+      );
+    } finally {
+      await h.cleanup();
+      fs.rmSync(worktree, { recursive: true, force: true });
+    }
+  });
+
+  it("vcWorktreeAware: false keeps the literal cwd", async () => {
+    const h = createHarness({ vcWorktreeAware: false });
+    const main = h.ctx.cwd;
+    const worktree = linkedWorktree(main);
+    try {
+      h.ctx.cwd = worktree;
+      await h.handlers.get("session_start")!({}, h.ctx);
+
+      const stats = await h.call("memory_stats", {});
+      // The worktree has no project settings of its own, so the opt-out drops
+      // back to the global default store instead of the main worktree's.
+      assert.ok(
+        stats.includes(`DB: ${path.join(fakeHome, ".pi", "memory", "memory.db")}`),
+        `opt-out must keep the literal cwd, got:\n${stats}`,
+      );
+    } finally {
+      await h.cleanup();
+      fs.rmSync(worktree, { recursive: true, force: true });
     }
   });
 });

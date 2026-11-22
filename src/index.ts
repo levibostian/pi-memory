@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { MemoryStore, type SemanticEntry } from "./store.js";
 import { buildContextBlock, projectSlug, type InjectorConfig, type Recalled, type RecallIds } from "./injector.js";
+import { resolveVcWorktreeProjectRoot } from "./vcWorktree.js";
 import {
   createEmbedder,
   diagnoseEmbedderError,
@@ -39,6 +40,7 @@ import { reciprocalRankFusion } from "./hybrid.js";
 // callers were always broken.
 export { MemoryStore } from "./store.js";
 export { buildContextBlock, projectSlug, type InjectorConfig } from "./injector.js";
+export { resolveVcWorktreeProjectRoot } from "./vcWorktree.js";
 
 type ToolResult = AgentToolResult<unknown>;
 type MemorySearchParams = { query: string; limit?: number };
@@ -129,7 +131,7 @@ function warnUnknownKeys(block: unknown, blockName: string, knownKeys: readonly 
   );
 }
 
-const PI_MEMORY_KNOWN_KEYS = ["localPath", "lessonInjection", "consolidationModel", "perTurnInjection", "injectionMode", "embedding"] as const;
+const PI_MEMORY_KNOWN_KEYS = ["localPath", "lessonInjection", "consolidationModel", "perTurnInjection", "injectionMode", "embedding", "vcWorktreeAware"] as const;
 const PI_TOTAL_RECALL_KNOWN_KEYS = ["localPath"] as const;
 
 export function resolveDbPath(cwd: string): string {
@@ -176,6 +178,9 @@ function mergeMemorySettings(config: InjectorConfig, memorySettings: unknown): v
   }
   if (typeof m.perTurnInjection === "boolean") {
     config.perTurnInjection = m.perTurnInjection;
+  }
+  if (typeof m.vcWorktreeAware === "boolean") {
+    config.vcWorktreeAware = m.vcWorktreeAware;
   }
   if (m.injectionMode === "system-prompt" || m.injectionMode === "message") {
     config.injectionMode = m.injectionMode;
@@ -448,13 +453,25 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     try {
-      sessionCwd = ctx.cwd;
       cachedCtx = ctx;
       sessionId = (ctx as any).sessionId ?? (ctx as any).session?.id;
 
-      // Resolve per-agent DB path from local settings or cwd
+      // A version control worktree (git, jj) is its own directory but the same
+      // project. Map back to the main worktree so all of them share one memory
+      // namespace: settings, localPath and project slug.
+      const projectRoot = resolveVcWorktreeProjectRoot(ctx.cwd);
+      const projectConfig = readSettingsConfig(projectRoot);
+
+      // `vcWorktreeAware: false` opts out. It is read from the project's own
+      // settings (or global settings), and from the worktree's settings when
+      // the two disagree, so turning it off works from either directory.
+      const cwdConfig = projectRoot === ctx.cwd ? projectConfig : readSettingsConfig(ctx.cwd);
+      const optedOut = projectConfig.vcWorktreeAware === false || cwdConfig.vcWorktreeAware === false;
+      sessionCwd = optedOut ? ctx.cwd : projectRoot;
+      injectorConfig = optedOut ? cwdConfig : projectConfig;
+
+      // Resolve per-agent DB path from local settings or the project dir
       resolvedDbPath = resolveDbPath(sessionCwd);
-      injectorConfig = readSettingsConfig(sessionCwd);
 
       store = new MemoryStore(resolvedDbPath);
 
@@ -563,12 +580,12 @@ export default function (pi: ExtensionAPI) {
     if (injectorConfig.perTurnInjection === false) return;
 
     if (injectorConfig.injectionMode === "system-prompt") {
-      const { text } = await buildContextBlock(store, ctx.cwd, event.prompt, injectorConfig);
+      const { text } = await buildContextBlock(store, sessionCwd, event.prompt, injectorConfig);
       return text ? { systemPrompt: `${event.systemPrompt}\n\n${text}` } : undefined;
     }
 
     if (!event.prompt?.trim()) return;
-    const { text, included } = await buildContextBlock(store, ctx.cwd, event.prompt, injectorConfig, recalledInContext(ctx.sessionManager));
+    const { text, included } = await buildContextBlock(store, sessionCwd, event.prompt, injectorConfig, recalledInContext(ctx.sessionManager));
     if (!text) return;
     return { message: { customType: RECALL_MESSAGE_TYPE, content: text, display: false, details: included } };
   });
