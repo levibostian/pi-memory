@@ -1,8 +1,8 @@
 // src/index.ts
 import { Type } from "typebox";
-import { join, resolve } from "node:path";
+import { join as join2, resolve as resolve2 } from "node:path";
 import { homedir } from "node:os";
-import { readFileSync } from "node:fs";
+import { readFileSync as readFileSync2 } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // src/store.ts
@@ -627,6 +627,72 @@ function projectSlug(cwd) {
   return "";
 }
 
+// src/vcWorktree.ts
+import { existsSync as existsSync2, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname as dirname2, join, resolve } from "node:path";
+function safeRealpath(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+function findVcRoot(start) {
+  let dir = resolve(start);
+  for (; ; ) {
+    if (existsSync2(join(dir, ".jj")) || existsSync2(join(dir, ".git"))) return dir;
+    const parent = dirname2(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+function gitMainWorktree(root) {
+  const dotGit = join(root, ".git");
+  try {
+    if (!statSync(dotGit).isFile()) return null;
+    const content = readFileSync(dotGit, "utf-8");
+    const match = /^gitdir:[ \t]*(.+?)[ \t]*$/m.exec(content);
+    if (!match) return null;
+    const gitdir = resolve(root, match[1]);
+    const worktreeMatch = /^(.*)[/\\]worktrees[/\\][^/\\]+$/.exec(gitdir);
+    if (!worktreeMatch) return null;
+    const common = worktreeMatch[1];
+    return basename(common) === ".git" ? dirname2(common) : null;
+  } catch {
+    return null;
+  }
+}
+function jjMainWorktree(root) {
+  const jjDir = join(root, ".jj");
+  if (!existsSync2(jjDir)) return null;
+  const pointer = join(jjDir, "repo");
+  try {
+    if (statSync(pointer).isDirectory()) return null;
+    const raw = readFileSync(pointer, "utf-8").trim();
+    if (!raw) return null;
+    const shared = resolve(jjDir, raw);
+    const sharedJjDir = dirname2(shared);
+    if (basename(shared) !== "repo" || basename(sharedJjDir) !== ".jj") return null;
+    return dirname2(sharedJjDir);
+  } catch {
+    return null;
+  }
+}
+function resolveVcWorktreeProjectRoot(cwd) {
+  try {
+    const root = findVcRoot(cwd);
+    if (!root) return cwd;
+    const main = jjMainWorktree(root) ?? gitMainWorktree(root);
+    if (!main || !existsSync2(main)) return cwd;
+    const realRoot = safeRealpath(root);
+    const realMain = safeRealpath(main);
+    if (realMain === realRoot) return cwd;
+    return realMain;
+  } catch {
+    return cwd;
+  }
+}
+
 // src/embedder.ts
 var DEFAULTS = {
   openai: { model: "text-embedding-3-small", dimensions: 512, baseUrl: "https://api.openai.com", sendDimensions: true },
@@ -1189,14 +1255,14 @@ function stripQuotes(v) {
 }
 var PACKAGE_ROOT = (() => {
   try {
-    return resolve(fileURLToPath(new URL("..", import.meta.url)));
+    return resolve2(fileURLToPath(new URL("..", import.meta.url)));
   } catch {
     return "the pi-memory package directory";
   }
 })();
-var DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "memory");
-var DEFAULT_DB_PATH = join(DEFAULT_MEMORY_DIR, "memory.db");
-var GLOBAL_SETTINGS_PATH = join(homedir(), ".pi", "agent", "settings.json");
+var DEFAULT_MEMORY_DIR = join2(homedir(), ".pi", "memory");
+var DEFAULT_DB_PATH = join2(DEFAULT_MEMORY_DIR, "memory.db");
+var GLOBAL_SETTINGS_PATH = join2(homedir(), ".pi", "agent", "settings.json");
 var DEFAULT_CONSOLIDATION_MODEL = "claude-sonnet-4-20250514";
 function warnUnknownKeys(block, blockName, knownKeys) {
   if (!block || typeof block !== "object") return;
@@ -1206,22 +1272,22 @@ function warnUnknownKeys(block, blockName, knownKeys) {
     `pi-memory: ignoring unknown key(s) in settings.json "${blockName}" block: ${unknown.join(", ")} (expected: ${knownKeys.join(", ")})`
   );
 }
-var PI_MEMORY_KNOWN_KEYS = ["localPath", "lessonInjection", "consolidationModel", "perTurnInjection", "injectionMode", "embedding"];
+var PI_MEMORY_KNOWN_KEYS = ["localPath", "lessonInjection", "consolidationModel", "perTurnInjection", "injectionMode", "embedding", "vcWorktreeAware"];
 var PI_TOTAL_RECALL_KNOWN_KEYS = ["localPath"];
 function resolveDbPath(cwd) {
   try {
-    const localSettingsPath = join(cwd, ".pi", "settings.json");
-    const raw = readFileSync(localSettingsPath, "utf-8");
+    const localSettingsPath = join2(cwd, ".pi", "settings.json");
+    const raw = readFileSync2(localSettingsPath, "utf-8");
     const settings = JSON.parse(raw);
     const piMemory = settings?.["pi-memory"];
     warnUnknownKeys(piMemory, "pi-memory", PI_MEMORY_KNOWN_KEYS);
     if (piMemory && typeof piMemory === "object" && typeof piMemory.localPath === "string" && piMemory.localPath) {
-      return resolve(cwd, piMemory.localPath, "memory.db");
+      return resolve2(cwd, piMemory.localPath, "memory.db");
     }
     const piTotalRecall = settings?.["pi-total-recall"];
     warnUnknownKeys(piTotalRecall, "pi-total-recall", PI_TOTAL_RECALL_KNOWN_KEYS);
     if (piTotalRecall && typeof piTotalRecall === "object" && typeof piTotalRecall.localPath === "string" && piTotalRecall.localPath) {
-      return resolve(cwd, piTotalRecall.localPath, "memory", "memory.db");
+      return resolve2(cwd, piTotalRecall.localPath, "memory", "memory.db");
     }
   } catch {
   }
@@ -1235,6 +1301,9 @@ function mergeMemorySettings(config, memorySettings) {
   }
   if (typeof m.perTurnInjection === "boolean") {
     config.perTurnInjection = m.perTurnInjection;
+  }
+  if (typeof m.vcWorktreeAware === "boolean") {
+    config.vcWorktreeAware = m.vcWorktreeAware;
   }
   if (m.injectionMode === "system-prompt" || m.injectionMode === "message") {
     config.injectionMode = m.injectionMode;
@@ -1281,14 +1350,14 @@ function parseEmbeddingSettings(raw) {
 function readSettingsConfig(cwd) {
   const config = {};
   try {
-    const raw = readFileSync(GLOBAL_SETTINGS_PATH, "utf-8");
+    const raw = readFileSync2(GLOBAL_SETTINGS_PATH, "utf-8");
     const settings = JSON.parse(raw);
     mergeMemorySettings(config, settings?.memory);
   } catch {
   }
   if (cwd) {
     try {
-      const raw = readFileSync(join(cwd, ".pi", "settings.json"), "utf-8");
+      const raw = readFileSync2(join2(cwd, ".pi", "settings.json"), "utf-8");
       const settings = JSON.parse(raw);
       mergeMemorySettings(config, settings?.memory ?? settings?.["pi-memory"]);
     } catch {
@@ -1409,11 +1478,15 @@ function index_default(pi) {
   }
   pi.on("session_start", async (_event, ctx) => {
     try {
-      sessionCwd = ctx.cwd;
       cachedCtx = ctx;
       sessionId = ctx.sessionId ?? ctx.session?.id;
+      const projectRoot = resolveVcWorktreeProjectRoot(ctx.cwd);
+      const projectConfig = readSettingsConfig(projectRoot);
+      const cwdConfig = projectRoot === ctx.cwd ? projectConfig : readSettingsConfig(ctx.cwd);
+      const optedOut = projectConfig.vcWorktreeAware === false || cwdConfig.vcWorktreeAware === false;
+      sessionCwd = optedOut ? ctx.cwd : projectRoot;
+      injectorConfig = optedOut ? cwdConfig : projectConfig;
       resolvedDbPath = resolveDbPath(sessionCwd);
-      injectorConfig = readSettingsConfig(sessionCwd);
       store = new MemoryStore(resolvedDbPath);
       embedder = null;
       embedFailure = null;
@@ -1480,13 +1553,13 @@ function index_default(pi) {
     if (!store) return;
     if (injectorConfig.perTurnInjection === false) return;
     if (injectorConfig.injectionMode === "system-prompt") {
-      const { text: text2 } = await buildContextBlock(store, ctx.cwd, event.prompt, injectorConfig);
+      const { text: text2 } = await buildContextBlock(store, sessionCwd, event.prompt, injectorConfig);
       return text2 ? { systemPrompt: `${event.systemPrompt}
 
 ${text2}` } : void 0;
     }
     if (!event.prompt?.trim()) return;
-    const { text, included } = await buildContextBlock(store, ctx.cwd, event.prompt, injectorConfig, recalledInContext(ctx.sessionManager));
+    const { text, included } = await buildContextBlock(store, sessionCwd, event.prompt, injectorConfig, recalledInContext(ctx.sessionManager));
     if (!text) return;
     return { message: { customType: RECALL_MESSAGE_TYPE, content: text, display: false, details: included } };
   });
@@ -1783,6 +1856,7 @@ export {
   index_default as default,
   projectSlug,
   readSettingsConfig,
-  resolveDbPath
+  resolveDbPath,
+  resolveVcWorktreeProjectRoot
 };
 //# sourceMappingURL=index.js.map
