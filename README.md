@@ -138,7 +138,26 @@ The result is capped at 15 most relevant lessons instead of all of them.
 }
 ```
 
-Set this in `~/.pi/agent/settings.json` for a user-wide default, or in `{project}/.pi/settings.json` (either under `memory` or `pi-memory`) to override per project. Examples: `openai/gpt-4.1-mini`, `ollama/qwen3:8b`, `anthropic/claude-haiku-4-5-20251001`. If the model string is invalid the consolidation sub-process fails silently and the session's memory is simply not consolidated — no data is lost from previous sessions.
+Set this in `~/.pi/memory/settings.json` for a machine-specific default, or keep
+using `~/.pi/agent/settings.json` for a legacy global default. Use
+`{project}/.pi/settings.json` (under `memory` or `pi-memory`) to override either
+global file for one project. Precedence is project settings, then
+`~/.pi/memory/settings.json`, then `~/.pi/agent/settings.json`.
+
+Examples: `openai/gpt-4.1-mini`, `ollama/qwen3:8b`,
+`anthropic/claude-haiku-4-5-20251001`. If the model string is invalid, the
+consolidation sub-process fails silently. The session's memory is not
+consolidated, but no data is lost from previous sessions.
+
+Example `~/.pi/memory/settings.json`:
+
+```json
+{
+  "memory": {
+    "consolidationModel": "openai/gpt-4.1-mini"
+  }
+}
+```
 
 ## Semantic search
 

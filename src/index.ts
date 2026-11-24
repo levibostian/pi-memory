@@ -96,7 +96,6 @@ const PACKAGE_ROOT = (() => {
 
 const DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "memory");
 const DEFAULT_DB_PATH = join(DEFAULT_MEMORY_DIR, "memory.db");
-const GLOBAL_SETTINGS_PATH = join(homedir(), ".pi", "agent", "settings.json");
 
 /**
  * Default model used for session-end consolidation when no user override is
@@ -229,7 +228,7 @@ function parseEmbeddingSettings(raw: unknown): InjectorConfig["embedding"] | und
 
 /**
  * Read pi-memory config from settings.json.
- * Looks for a "memory" (or project-local "pi-memory") key with
+ * Looks for a "memory" (or "pi-memory") key with
  * extension-specific settings.
  *
  * Example settings.json:
@@ -243,16 +242,25 @@ function parseEmbeddingSettings(raw: unknown): InjectorConfig["embedding"] | und
  *
  * Exported for tests.
  */
-export function readSettingsConfig(cwd?: string): InjectorConfig {
+export function readSettingsConfig(cwd?: string, homeDir = homedir()): InjectorConfig {
   const config: InjectorConfig = {};
 
-  // Read global settings
+  // Legacy settings remain supported as a fallback.
   try {
-    const raw = readFileSync(GLOBAL_SETTINGS_PATH, "utf-8");
+    const raw = readFileSync(join(homeDir, ".pi", "agent", "settings.json"), "utf-8");
     const settings = JSON.parse(raw);
     mergeMemorySettings(config, settings?.memory);
   } catch {
-    // no global settings
+    // no legacy global settings
+  }
+
+  // The memory-directory settings file overrides the legacy global settings.
+  try {
+    const raw = readFileSync(join(homeDir, ".pi", "memory", "settings.json"), "utf-8");
+    const settings = JSON.parse(raw);
+    mergeMemorySettings(config, settings?.memory ?? settings?.["pi-memory"]);
+  } catch {
+    // no memory-directory settings
   }
 
   // Override with local project settings if available
