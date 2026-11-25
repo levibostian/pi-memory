@@ -1262,7 +1262,6 @@ var PACKAGE_ROOT = (() => {
 })();
 var DEFAULT_MEMORY_DIR = join2(homedir(), ".pi", "memory");
 var DEFAULT_DB_PATH = join2(DEFAULT_MEMORY_DIR, "memory.db");
-var GLOBAL_SETTINGS_PATH = join2(homedir(), ".pi", "agent", "settings.json");
 var DEFAULT_CONSOLIDATION_MODEL = "claude-sonnet-4-20250514";
 function warnUnknownKeys(block, blockName, knownKeys) {
   if (!block || typeof block !== "object") return;
@@ -1347,12 +1346,18 @@ function parseEmbeddingSettings(raw) {
   if (typeof e.sendDimensions === "boolean") out.sendDimensions = e.sendDimensions;
   return out;
 }
-function readSettingsConfig(cwd) {
+function readSettingsConfig(cwd, homeDir = homedir()) {
   const config = {};
   try {
-    const raw = readFileSync2(GLOBAL_SETTINGS_PATH, "utf-8");
+    const raw = readFileSync2(join2(homeDir, ".pi", "agent", "settings.json"), "utf-8");
     const settings = JSON.parse(raw);
     mergeMemorySettings(config, settings?.memory);
+  } catch {
+  }
+  try {
+    const raw = readFileSync2(join2(homeDir, ".pi", "memory", "settings.json"), "utf-8");
+    const settings = JSON.parse(raw);
+    mergeMemorySettings(config, settings?.memory ?? settings?.["pi-memory"]);
   } catch {
   }
   if (cwd) {
